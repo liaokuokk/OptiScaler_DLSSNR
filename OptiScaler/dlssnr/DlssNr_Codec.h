@@ -232,7 +232,16 @@ void main(uint3 id : SV_DispatchThreadID)
     float3 proxy = gPassthrough != 0 ? proxySample.rgb : SrgbToLinear(proxySample.rgb);
     float3 model = gPassthrough != 0 ? modelSample.rgb : SrgbToLinear(modelSample.rgb);
     float4 originalSample = gOriginal.Load(int3(id.xy, 0));
-    float3 original = originalSample.rgb;
+
+    // All three pictures have to share a scale before their luminances can be compared. The proxy and
+    // the model come back from an sRGB decode, so they sit in 0..1 where 1 is the white point; the
+    // frame is raw linear and runs well past that. Comparing them unnormalised is a real bug and it
+    // reads exactly like the model has stopped adding detail: with the frame several times larger,
+    // the shadow branch never fires, every pixel takes the highlight branch, and the clamp flattens
+    // the result to a near-constant scale. Colour still moves, because that comes from the model's
+    // own hue, which is what makes the failure so confusing to look at.
+    const float normScale = gPassthrough != 0 ? 1.0 : max(gWhitePoint, 1e-4);
+    float3 original = originalSample.rgb / normScale;
 
     float originalLuma = dot(original, kLuma);
     float proxyLuma = dot(proxy, kLuma);
@@ -307,6 +316,9 @@ void main(uint3 id : SV_DispatchThreadID)
     float upgradedLuma = dot(upgraded, kLuma);
     float lumaRatio = originalLuma > 1e-6 ? clamp(upgradedLuma / originalLuma, 0.0, gMaxRatio) : 1.0;
     float3 result = lerp(original * lumaRatio, upgraded, gColourStrength);
+
+    // Back out of the normalised space the composition worked in.
+    result *= normScale;
 
     gTarget[id.xy] = float4(max(result, float3(0.0, 0.0, 0.0)), originalSample.a);
 }
