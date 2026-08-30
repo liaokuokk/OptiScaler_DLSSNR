@@ -150,8 +150,6 @@ void ClearCaptureDirectory()
             LOG_WARN("DLSS-NR could not clear {}: {}", dir.string(), ec.message());
     }
 }
-float g_autoWhitePoint = 2.0f;
-bool g_autoWhitePointSettled = false;
 
 unsigned long long g_frames = 0;
 
@@ -822,46 +820,17 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
             LOG_INFO("DLSS-NR wrote matched before/after frames to {}", written);
     }
 
-    const bool autoWhite = cfg.DlssNrAutoWhitePoint.value_or_default();
-
-    if (autoWhite)
-    {
-        const probe::Stats stats = g_reader.collect();
-
-        if (autoWhite && stats.valid && stats.meanLuma > 0.0f)
-        {
-            const float target = WhitePointForMean(stats.meanLuma);
-
-            if (!g_autoWhitePointSettled)
-            {
-                // Nothing to ease away from on the first reading, and easing in from a wrong default is
-                // just a slow wrong answer.
-                g_autoWhitePoint = target;
-                g_autoWhitePointSettled = true;
-                LOG_INFO("DLSS-NR white point settled at {:.3f} (frame mean {:.4f})", g_autoWhitePoint,
-                         stats.meanLuma);
-            }
-            else
-            {
-                g_autoWhitePoint += (target - g_autoWhitePoint) * kWhitePointBlend;
-            }
-        }
-    }
-
-    // The proxy is the frame divided by this and encoded, and that is the whole transform.
+    // Paper white, and nothing else. The frame is divided by this and encoded, and the soft knee
+    // above 0.75 takes whatever is left over.
     //
-    // Which divisor depends on what the frame is. On this path a linear HDR buffer is scene-referred
-    // and carries values well above 1, so it has to be normalised by the measured white point before
-    // encoding -- dividing it by the paper-white scale alone leaves everything bright piled into the
-    // soft knee, and the model then judges tone and colour on a picture that is crushed at the top.
-    // An already tone-mapped buffer is display-referred and needs no normalising, so there the scale
-    // is the whole story, which is what a paper-white control should be.
-    const float wpScale = cfg.DlssNrWhitePointScale.value_or_default();
-    const float whitePoint =
-        isHdrBuffer ? (autoWhite && g_autoWhitePointSettled ? g_autoWhitePoint
-                                                            : cfg.DlssNrWhitePoint.value_or_default()) *
-                          wpScale
-                    : wpScale;
+    // It used to be divided by a white point measured from the frame -- around 3 in Cyberpunk -- which
+    // was right for the old composition, where the encode had to be inverted and highlights therefore
+    // had to survive it. Under the composition this now uses it is actively wrong twice over: the
+    // model is handed a picture three times darker than it should see, and the highlight branch is
+    // defeated. That branch hands back `originalLuma - proxyLuma`, the headroom the proxy could not
+    // represent -- it exists precisely because the proxy is meant to clip. Normalising the highlights
+    // away first leaves it nothing to give back.
+    const float whitePoint = cfg.DlssNrWhitePointScale.value_or_default();
 
     if (g_gpuTime == nullptr)
         g_gpuTime = std::make_unique<GpuTime_Dx12>(device);
@@ -883,14 +852,6 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
     Barrier(cmdList, target, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     g_codec.dispatch(cmdList, encodeParams, target, nullptr, nullptr, g_nr.colorCopy, g_nr.hdrCopy);
-
-    // Measuring here, while the frame is already readable, costs one dispatch every so often and no
-    // extra barriers. Twice a second is far more often than an exposure meaningfully moves.
-    if (autoWhite && (g_frames % 30 == 0) && g_reducer.ensure(device))
-    {
-        ID3D12Resource* reducedFrame = g_reducer.dispatch(cmdList, target, width, height);
-        g_reader.capture(cmdList, reducedFrame, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    }
 
     Barrier(cmdList, target, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -1069,8 +1030,6 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
 bool IsRunning() { return g_nr.feature != nullptr && !g_nr.failed; }
 
 const char* FailureReason() { return g_nr.failed ? g_nr.reason : ""; }
-
-float CurrentWhitePoint() { return g_autoWhitePointSettled ? g_autoWhitePoint : 0.0f; }
 
 std::optional<double> LastGpuTime() { return g_lastGpuTime; }
 

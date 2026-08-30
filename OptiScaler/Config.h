@@ -278,10 +278,6 @@ class Config
     CustomOptional<float> DlssNrTransferStrength { 1.0f };
     CustomOptional<float> DlssNrColourStrength { 1.0f };
 
-    // The linear value the encode maps to display white. Derived from the frame by default: measured
-    // means in one game have ranged from 0.065 to 185, so no fixed number can serve.
-    CustomOptional<bool> DlssNrAutoWhitePoint { true };
-    CustomOptional<float> DlssNrWhitePoint { 2.0f };
 
     // The most the pass may multiply or divide a pixel by. A detail pass has no business restyling a
     // light source, whatever the model returns.

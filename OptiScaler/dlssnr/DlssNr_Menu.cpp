@@ -211,42 +211,8 @@ void RenderMenu(Config* config, float menuResScale)
                             "already tone-mapped is passed over untouched and none of this applies.");
 
         {
-        bool autoWhite = config->DlssNrAutoWhitePoint.value_or_default();
-        if (ImGui::Checkbox("Automatic white point", &autoWhite))
-            config->DlssNrAutoWhitePoint = autoWhite;
-
-        HelpMarker("The upscaler's output is linear HDR with an open-ended range; the model was"
-                       "\ntrained on finished, sRGB-encoded frames. The white point is what maps one to"
-                       "\nthe other, and it belongs to the game's exposure."
-                       "\n\nMeasured frame means in Cyberpunk alone have ranged from 0.065 in gameplay to"
-                       "\n185 in another scene, so no fixed number can serve. This measures the frame and"
-                       "\nfollows it."
-                       "\n\nThis does move the result, not only what the model sees: the picture it was"
-                       "\nshown is one of the three luminances the composition weighs, so changing the"
-                       "\nwhite point changes where the model's answer is judged to sit.");
-
-        if (autoWhite)
-        {
-            const float current = DlssNr::CurrentWhitePoint();
-
-            if (current > 0.0f)
-                ImGui::Text("Measured: %.3f", current);
-            else
-                ImGui::TextUnformatted("Measuring...");
-        }
-        else
-        {
-            float whitePoint = config->DlssNrWhitePoint.value_or_default();
-            if (ImGui::SliderFloat("White point", &whitePoint, 0.01f, 300.0f, "%.2f",
-                                   ImGuiSliderFlags_Logarithmic))
-                config->DlssNrWhitePoint = whitePoint;
-
-            HelpMarker("Too low and highlights flatten out before the model sees them; too high and"
-                           "\nit works on a dark, featureless frame.");
-        }
-
         float wpScale = config->DlssNrWhitePointScale.value_or_default();
-        if (ImGui::SliderFloat("White point scale", &wpScale, 0.5f, 2.0f, "%.2fx"))
+        if (ImGui::SliderFloat("Paper white", &wpScale, 0.25f, 4.0f, "%.2fx"))
             config->DlssNrWhitePointScale = wpScale;
 
         HelpMarker("Multiplies the white point above -- automatic or manual -- before the model"
