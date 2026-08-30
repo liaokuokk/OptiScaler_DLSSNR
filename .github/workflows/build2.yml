@@ -5,30 +5,31 @@ on:
 
 jobs:
   build:
+
     runs-on: windows-2022
 
     steps:
 
-    - name: Download source
+    - name: Checkout
       uses: actions/checkout@v4
       with:
         submodules: recursive
 
+
     - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
 
-    - name: Configure
-      run: |
-        cmake -B build -S .
 
-    - name: Build Release
+    - name: Build Solution
+      shell: cmd
       run: |
-        cmake --build build --config Release
+        msbuild OptiScaler.sln /p:Configuration=Release /p:Platform=x64
 
-    - name: Upload DLL
+
+    - name: Upload
       uses: actions/upload-artifact@v4
       with:
         name: OptiScaler-DLSSNR
         path: |
-          build/**/Release/*.dll
-          build/**/Release/*.asi
+          **/Release/*.dll
+          **/Release/*.asi
